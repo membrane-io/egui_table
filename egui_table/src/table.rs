@@ -241,7 +241,7 @@ impl Table {
     ///
     /// You need to set this to something unique if you have multiple tables in the same ui.
     #[inline]
-    pub fn id_salt(mut self, id_salt: impl std::hash::Hash) -> Self {
+    pub fn id_salt(mut self, id_salt: impl std::hash::Hash + std::fmt::Debug) -> Self {
         self.id_salt = Id::new(id_salt);
         self
     }
