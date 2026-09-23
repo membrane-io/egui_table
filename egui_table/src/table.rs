@@ -360,7 +360,7 @@ impl Table {
     .saturating_sub(1)
   }
 
-  pub fn show(mut self, ui: &mut Ui, table_delegate: &mut dyn TableDelegate) -> Response {
+  pub fn show(mut self, ui: &mut Ui, table_delegate: &mut dyn TableDelegate) -> TableOutput {
     self.num_sticky_cols = self.num_sticky_cols.at_most(self.columns.len());
 
     let id = TableState::id(ui, self.id_salt);
@@ -392,90 +392,116 @@ impl Table {
     }
     state.parent_width = Some(parent_width);
 
-    let col_x = {
-      let mut x = ui.cursor().min.x;
-      let mut col_x = Vec1::with_capacity(x, self.columns.len() + 1);
-      for column in &self.columns {
-        x += column.current;
-        col_x.push(x);
-      }
-      col_x
-    };
-
-    let header_row_y = {
-      let mut y = ui.cursor().min.y;
-      let mut sticky_row_y = Vec1::with_capacity(y, self.headers.len() + 1);
-      for header in &self.headers {
-        y += header.height;
-        sticky_row_y.push(y);
-      }
-      sticky_row_y
-    };
-
     let sticky_size = Vec2::new(
       self.columns[..self.num_sticky_cols].iter().map(|c| c.current).sum(),
       self.headers.iter().map(|h| h.height).sum(),
     );
 
-    let mut ui_builder = UiBuilder::new().id_salt(id).layout(Layout::top_down(Align::Min));
+    // Keep the table inside the parent. A rounded child rect is taller, and the block then grows.
+    let bounds = ui.available_rect_before_wrap().intersect(ui.max_rect());
+    let mut ui_builder = UiBuilder::new().id_salt(id).layout(Layout::top_down(Align::Min)).max_rect(bounds);
     if do_full_sizing_pass {
       ui_builder = ui_builder.sizing_pass().invisible();
       ui.request_discard("Full egui_table sizing");
     }
-    let response = ui
-      .scope_builder(ui_builder, |ui| {
-        // Don't wrap text in the table cells.
-        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // TODO: I think this is default for horizontal layouts anyway?
+    let rendered = ui.scope_builder(ui_builder, |ui| {
+      // Don't wrap text in the table cells.
+      ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend); // TODO: I think this is default for horizontal layouts anyway?
 
-        let num_columns = self.columns.len();
+      // Same cursor the scroll area uses. An origin taken before this scope
+      // uses a different pixel rounding, and the columns miss the clip rect.
+      let origin = ui.cursor().min;
+      let col_x = {
+        let mut x = origin.x;
+        let mut col_x = Vec1::with_capacity(x, self.columns.len() + 1);
+        for column in &self.columns {
+          x += column.current;
+          col_x.push(x);
+        }
+        col_x
+      };
+      let header_row_y = {
+        let mut y = origin.y;
+        let mut header_row_y = Vec1::with_capacity(y, self.headers.len() + 1);
+        for header in &self.headers {
+          y += header.height;
+          header_row_y.push(y);
+        }
+        header_row_y
+      };
 
-        for (col_nr, column) in self.columns.iter_mut().enumerate() {
-          if column.resizable {
-            let column_resize_id = id.with(column.id_for(col_nr)).with("resize");
-            if let Some(response) = ui.read_response(column_resize_id)
-              && response.double_clicked()
-            {
-              column.auto_size_this_frame = true;
-            }
-          }
-          if column.auto_size_this_frame {
-            ui.request_discard("egui_table column sizing");
+      let num_columns = self.columns.len();
+
+      for (col_nr, column) in self.columns.iter_mut().enumerate() {
+        if column.resizable {
+          let column_resize_id = id.with(column.id_for(col_nr)).with("resize");
+          if let Some(response) = ui.read_response(column_resize_id)
+            && response.double_clicked()
+          {
+            column.auto_size_this_frame = true;
           }
         }
-
-        SplitScroll {
-          scroll_enabled: Vec2b::new(true, true),
-          fixed_size: sticky_size,
-          scroll_outer_size: (ui.available_size() - sticky_size).at_least(Vec2::ZERO),
-          scroll_content_size: Vec2::new(
-            self.columns[self.num_sticky_cols..].iter().map(|c| c.current).sum(),
-            self.get_row_top_offset(ui, id, table_delegate, self.num_rows),
-          ),
-          stick_to_bottom: self.stick_to_bottom,
-          id_salt: id,
+        if column.auto_size_this_frame {
+          ui.request_discard("egui_table column sizing");
         }
-        .show(
-          ui,
-          &mut TableSplitScrollDelegate {
-            id,
-            table_delegate,
-            state: &mut state,
-            table: &mut self,
-            col_x,
-            header_row_y,
-            max_column_widths: vec![0.0; num_columns],
-            visible_column_lines: Default::default(),
-            do_full_sizing_pass,
-            has_prefetched: false,
-            egui_ctx: ui.clone(),
-          },
-        );
-      })
-      .response;
+      }
+
+      SplitScroll {
+        scroll_enabled: Vec2b::new(true, true),
+        fixed_size: sticky_size,
+        scroll_outer_size: (ui.max_rect().size() - sticky_size).at_least(Vec2::ZERO),
+        scroll_content_size: Vec2::new(
+          self.columns[self.num_sticky_cols..].iter().map(|c| c.current).sum(),
+          self.get_row_top_offset(ui, id, table_delegate, self.num_rows),
+        ),
+        stick_to_bottom: self.stick_to_bottom,
+        id_salt: id,
+      }
+      .show(
+        ui,
+        &mut TableSplitScrollDelegate {
+          id,
+          table_delegate,
+          state: &mut state,
+          table: &mut self,
+          col_x,
+          header_row_y,
+          max_column_widths: vec![0.0; num_columns],
+          visible_column_lines: Default::default(),
+          do_full_sizing_pass,
+          has_prefetched: false,
+          scroll_offset: Vec2::ZERO,
+          egui_ctx: ui.clone(),
+        },
+      )
+    });
 
     state.store(ui, id);
-    response
+    TableOutput {
+      response: rendered.response,
+      scroll_offset: rendered.inner.offset,
+      scroll_content: rendered.inner.content_size,
+      scroll_viewport: rendered.inner.viewport,
+      table_rect: rendered.inner.rect,
+    }
   }
+}
+
+/// Scroll geometry from one [`Table::show`] call.
+pub struct TableOutput {
+  pub response: Response,
+
+  /// Scroll offset of the body. Positive x hides columns on the left.
+  pub scroll_offset: Vec2,
+
+  /// Size of the scrolling content, excluding sticky columns and header rows.
+  pub scroll_content: Vec2,
+
+  /// Visible rectangle of the scrolling body.
+  pub scroll_viewport: Rect,
+
+  /// The whole table, including headers and sticky columns.
+  pub table_rect: Rect,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -518,6 +544,9 @@ struct TableSplitScrollDelegate<'a> {
 
   has_prefetched: bool,
 
+  /// The offset ScrollArea used to place the body. The code does not take it from the rounded content rect.
+  scroll_offset: Vec2,
+
   egui_ctx: Context,
 }
 
@@ -532,7 +561,13 @@ impl TableSplitScrollDelegate<'_> {
     self.table.get_row_nr_at_y_offset(&self.egui_ctx, self.id, self.table_delegate, y_offset)
   }
 
-  fn header_ui(&mut self, ui: &mut Ui, scroll_offset: Vec2) {
+  /// `columns` is the only range this quadrant builds.
+  /// Both quadrants used to build every header.
+  /// When the user scrolls, the two copies use the same widget id at two rects.
+  fn header_ui(&mut self, ui: &mut Ui, scroll_offset: Vec2, columns: Range<usize>) {
+    if columns.is_empty() {
+      return;
+    }
     for (row_nr, header_row) in self.table.headers.iter().enumerate() {
       let groups = if header_row.groups.is_empty() {
         (0..self.table.columns.len()).map(|i| i..i + 1).collect()
@@ -545,9 +580,16 @@ impl TableSplitScrollDelegate<'_> {
       for (group_index, col_range) in groups.into_iter().enumerate() {
         let start = col_range.start;
         let end = col_range.end;
+        if start < columns.start || start >= columns.end {
+          continue;
+        }
 
         let mut header_rect =
           Rect::from_x_y_ranges(self.col_x[start]..=self.col_x[end], y_range).translate(-scroll_offset);
+        let overlap = header_rect.intersect(ui.clip_rect());
+        if overlap.width() <= 0.0 || overlap.height() <= 0.0 {
+          continue;
+        }
 
         if 0 < start && self.table.columns[start - 1].resizable && ui.clip_rect().x_range().contains(header_rect.left())
         {
@@ -596,15 +638,27 @@ impl TableSplitScrollDelegate<'_> {
     }
   }
 
-  fn region_ui(&mut self, ui: &mut Ui, scroll_offset: Vec2, do_prefetch: bool) {
+  fn region_ui(&mut self, ui: &mut Ui, scroll_offset: Vec2, columns: Range<usize>, do_prefetch: bool) {
+    if columns.is_empty() {
+      if do_prefetch {
+        self.table_delegate.prepare(&PrefetchInfo {
+          num_sticky_columns: self.table.num_sticky_cols,
+          visible_columns: 0..0,
+          visible_rows: 0..0,
+          table_id: self.id,
+        });
+        self.has_prefetched = true;
+      }
+      return;
+    }
     // Used to find the visible range of columns and rows:
     let viewport = ui.clip_rect().translate(scroll_offset);
 
-    let col_range = if self.table.columns.is_empty() || viewport.left() == viewport.right() {
+    let mut col_range = if self.table.columns.is_empty() || viewport.left() == viewport.right() {
       0..0
     } else if self.do_full_sizing_pass {
-      // We do the UI for all columns during a sizing pass, so we can auto-size ALL columns
-      0..self.table.columns.len()
+      // Size every column of this quadrant. The other quadrant sizes the rest.
+      columns.clone()
     } else {
       // Only paint the visible columns:
       let col_idx_at = |x: f32| -> usize {
@@ -613,6 +667,11 @@ impl TableSplitScrollDelegate<'_> {
 
       col_idx_at(viewport.min.x)..col_idx_at(viewport.max.x) + 1
     };
+    col_range.start = col_range.start.max(columns.start);
+    col_range.end = col_range.end.min(columns.end);
+    if col_range.start >= col_range.end {
+      col_range = columns.start..columns.start;
+    }
 
     let row_range = if self.table.num_rows == 0 || viewport.top() == viewport.bottom() {
       0..0
@@ -741,21 +800,25 @@ impl SplitScrollDelegate for TableSplitScrollDelegate<'_> {
       ui.scroll_to_rect(target_rect, target_align);
     }
 
-    let scroll_offset = ui.clip_rect().min - ui.min_rect().min;
-    self.region_ui(ui, scroll_offset, true);
+    let scrollable = self.table.num_sticky_cols..self.table.columns.len();
+    self.region_ui(ui, self.scroll_offset, scrollable, true);
   }
 
   fn left_top_ui(&mut self, ui: &mut Ui) {
-    self.header_ui(ui, Vec2::ZERO);
+    self.header_ui(ui, Vec2::ZERO, 0..self.table.num_sticky_cols);
   }
 
   fn right_top_ui(&mut self, ui: &mut Ui) {
-    let scroll_offset = vec2(ui.clip_rect().min.x - ui.min_rect().min.x, 0.0);
-    self.header_ui(ui, scroll_offset);
+    let scrollable = self.table.num_sticky_cols..self.table.columns.len();
+    self.header_ui(ui, vec2(self.scroll_offset.x, 0.0), scrollable);
   }
 
   fn left_bottom_ui(&mut self, ui: &mut Ui) {
-    self.region_ui(ui, vec2(0.0, ui.clip_rect().min.y - ui.min_rect().min.y), false);
+    self.region_ui(ui, vec2(0.0, self.scroll_offset.y), 0..self.table.num_sticky_cols, false);
+  }
+
+  fn set_scroll_offset(&mut self, offset: Vec2) {
+    self.scroll_offset = offset;
   }
 
   fn finish(&mut self, ui: &mut Ui) {

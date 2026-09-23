@@ -61,17 +61,63 @@ pub trait SplitScrollDelegate {
 
   /// Called last.
   fn finish(&mut self, _ui: &mut Ui) {}
+
+  /// The scroll offset the body used for this frame. Positive x moves content left.
+  fn set_scroll_offset(&mut self, _offset: Vec2) {}
+}
+
+/// Geometry of one [`SplitScroll`] frame.
+pub struct SplitScrollOutput {
+  /// Scroll offset applied to the body. Positive x hides content on the left.
+  pub offset: Vec2,
+
+  /// Size of the scrolling content, excluding the fixed left and top.
+  pub content_size: Vec2,
+
+  /// Visible rectangle of the scrolling region.
+  pub viewport: Rect,
+
+  /// Full rectangle, including the fixed left and top.
+  pub rect: Rect,
+}
+
+/// A grid-aligned rect inside `bounds`.
+///
+/// [`Ui::advance_cursor_after_rect`] rounds each edge onto the ui grid. That rounded
+/// rect can extend past `bounds`. The caller then stores the extra height.
+fn rect_inside_grid(desired: Rect, bounds: Rect) -> Rect {
+  use egui::emath::GuiRounding as _;
+
+  let grid = egui::emath::GUI_ROUNDING;
+  let snap_min = |value: f32, limit: f32| -> f32 {
+    let floored = value.max(limit).floor_ui();
+    if floored < limit { floored + grid } else { floored }
+  };
+  let snap_max = |value: f32, limit: f32| value.min(limit).floor_ui();
+  let min_x = snap_min(desired.min.x, bounds.min.x);
+  let min_y = snap_min(desired.min.y, bounds.min.y);
+  Rect::from_min_max(
+    pos2(min_x, min_y),
+    pos2(snap_max(desired.max.x, bounds.max.x).max(min_x), snap_max(desired.max.y, bounds.max.y).max(min_y)),
+  )
 }
 
 impl SplitScroll {
-  pub fn show(self, ui: &mut Ui, delegate: &mut dyn SplitScrollDelegate) {
+  pub fn show(self, ui: &mut Ui, delegate: &mut dyn SplitScrollDelegate) -> SplitScrollOutput {
     let Self { scroll_enabled, fixed_size, scroll_outer_size, scroll_content_size, stick_to_bottom, id_salt } = self;
 
-    ui.scope(|ui| {
+    let bounds = ui.available_rect_before_wrap().intersect(ui.max_rect());
+    ui.scope_builder(UiBuilder::new().max_rect(bounds), |ui| {
       ui.visuals_mut().clip_rect_margin = 0.0; // Everything else looks awful
 
-      let mut rect = ui.cursor();
-      rect.max = rect.min + fixed_size + scroll_outer_size;
+      let limit = ui.max_rect();
+      let desired_max = limit.min + fixed_size + scroll_outer_size;
+      let desired = Rect::from_min_max(
+        limit.min,
+        pos2(desired_max.x.min(limit.max.x).max(limit.min.x), desired_max.y.min(limit.max.y).max(limit.min.y)),
+      );
+      // `advance_cursor_after_rect` rounds again. A rect that is already on the grid stays put.
+      let rect = rect_inside_grid(desired, limit);
       ui.shrink_clip_rect(rect);
       let rect = rect;
 
@@ -99,6 +145,9 @@ impl SplitScroll {
 
             let mut shrunk_ui = ui.new_child(UiBuilder::new().max_rect(shrunk_rect));
             shrunk_ui.shrink_clip_rect(bottom_right_rect);
+            // ScrollArea places this content at viewport.min, then rounds the content rect to pixels.
+            // An offset taken from that rect differs from the header strip by up to one pixel.
+            delegate.set_scroll_offset(scroll_offset.min.to_vec2());
             delegate.right_bottom_ui(&mut shrunk_ui);
 
             // It is very important that the scroll offset is synced between the
@@ -145,6 +194,14 @@ impl SplitScroll {
 
       delegate.finish(ui);
       ui.advance_cursor_after_rect(rect);
-    });
+
+      SplitScrollOutput {
+        offset: scroll_offset.to_vec2(),
+        content_size: scroll_content_size,
+        viewport: bottom_right_rect,
+        rect,
+      }
+    })
+    .inner
   }
 }
