@@ -119,8 +119,6 @@ impl SplitScroll {
 
     let bounds = ui.available_rect_before_wrap().intersect(ui.max_rect());
     ui.scope_builder(UiBuilder::new().max_rect(bounds), |ui| {
-      ui.visuals_mut().clip_rect_margin = 0.0; // Everything else looks awful
-
       let limit = ui.max_rect();
       let desired_max = limit.min + fixed_size + scroll_outer_size;
       let desired = Rect::from_min_max(
