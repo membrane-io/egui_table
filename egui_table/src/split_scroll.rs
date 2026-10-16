@@ -39,6 +39,9 @@ pub struct SplitScroll {
   /// If true, the vertical scrollbar will stick to the bottom as the content grows.
   pub stick_to_bottom: bool,
 
+  /// If set, the scroll area uses this vertical offset in this frame.
+  pub vertical_scroll_offset: Option<f32>,
+
   /// Salt for the inner [`egui::ScrollArea`]. Must be unique among tables in the same parent `Ui`.
   pub id_salt: egui::Id,
 }
@@ -104,7 +107,15 @@ fn rect_inside_grid(desired: Rect, bounds: Rect) -> Rect {
 
 impl SplitScroll {
   pub fn show(self, ui: &mut Ui, delegate: &mut dyn SplitScrollDelegate) -> SplitScrollOutput {
-    let Self { scroll_enabled, fixed_size, scroll_outer_size, scroll_content_size, stick_to_bottom, id_salt } = self;
+    let Self {
+      scroll_enabled,
+      fixed_size,
+      scroll_outer_size,
+      scroll_content_size,
+      stick_to_bottom,
+      vertical_scroll_offset,
+      id_salt,
+    } = self;
 
     let bounds = ui.available_rect_before_wrap().intersect(ui.max_rect());
     ui.scope_builder(UiBuilder::new().max_rect(bounds), |ui| {
@@ -132,11 +143,15 @@ impl SplitScroll {
 
         let mut scroll_ui = ui.new_child(UiBuilder::new().max_rect(rect));
 
-        egui::ScrollArea::new(scroll_enabled)
+        let mut area = egui::ScrollArea::new(scroll_enabled)
           .id_salt(id_salt)
           .auto_shrink(false)
           .scroll_bar_rect(bottom_right_rect)
-          .stick_to_bottom(stick_to_bottom)
+          .stick_to_bottom(stick_to_bottom);
+        if let Some(offset) = vertical_scroll_offset {
+          area = area.vertical_scroll_offset(offset);
+        }
+        area
           .show_viewport(&mut scroll_ui, |ui, scroll_offset| {
             ui.set_min_size(fixed_size + scroll_content_size);
 

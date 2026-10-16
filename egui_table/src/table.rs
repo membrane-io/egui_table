@@ -117,6 +117,9 @@ pub struct Table {
   ///
   /// Useful for log views or terminal emulation.
   stick_to_bottom: bool,
+
+  /// If set, the body uses this vertical scroll offset in this frame.
+  vertical_scroll_offset: Option<f32>,
 }
 
 impl Default for Table {
@@ -131,6 +134,7 @@ impl Default for Table {
       scroll_to_columns: None,
       scroll_to_rows: None,
       stick_to_bottom: false,
+      vertical_scroll_offset: None,
     }
   }
 }
@@ -286,6 +290,14 @@ impl Table {
   #[inline]
   pub fn stick_to_bottom(mut self, stick: bool) -> Self {
     self.stick_to_bottom = stick;
+    self
+  }
+
+  /// Set the vertical scroll offset of the body for this frame, with no animation. The body
+  /// shows the rows at this offset in the same frame.
+  #[inline]
+  pub fn vertical_scroll_offset(mut self, offset: f32) -> Self {
+    self.vertical_scroll_offset = Some(offset);
     self
   }
 
@@ -455,6 +467,7 @@ impl Table {
           self.get_row_top_offset(ui, id, table_delegate, self.num_rows),
         ),
         stick_to_bottom: self.stick_to_bottom,
+        vertical_scroll_offset: self.vertical_scroll_offset,
         id_salt: id,
       }
       .show(
