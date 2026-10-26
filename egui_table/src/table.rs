@@ -871,7 +871,7 @@ impl SplitScrollDelegate for TableSplitScrollDelegate<'_> {
       let resize_response = ui.interact(line_rect, column_resize_id, egui::Sense::click_and_drag());
 
       if resize_response.dragged()
-        && let Some(pointer) = ui.pointer_latest_pos()
+        && let Some(pointer) = resize_response.interact_pointer_pos()
       {
         // Drag-to-resize.
         // TODO: use `ui.intrinsic_size` (once it exist) to prevent
