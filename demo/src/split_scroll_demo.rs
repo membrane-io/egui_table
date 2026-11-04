@@ -17,6 +17,8 @@ impl SplitScrollDemo {
       scroll_content_size: vec2(10_000.0, 10_000.0),
       stick_to_bottom: false,
       vertical_scroll_offset: None,
+      vertical_shift: 0.0,
+      vertical_scroll_bar: true,
       id_salt: egui::Id::new("split_scroll_demo"),
     }
     .show(ui, &mut delegate);
