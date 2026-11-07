@@ -42,6 +42,12 @@ pub struct SplitScroll {
   /// If set, the scroll area uses this vertical offset in this frame.
   pub vertical_scroll_offset: Option<f32>,
 
+  /// The scroll area moves its vertical offset by this distance in this frame. See [`egui::ScrollArea::shift_offset`].
+  pub vertical_shift: f32,
+
+  /// If false, the scroll area shows no vertical scroll bar.
+  pub vertical_scroll_bar: bool,
+
   /// Salt for the inner [`egui::ScrollArea`]. Must be unique among tables in the same parent `Ui`.
   pub id_salt: egui::Id,
 }
@@ -114,6 +120,8 @@ impl SplitScroll {
       scroll_content_size,
       stick_to_bottom,
       vertical_scroll_offset,
+      vertical_shift,
+      vertical_scroll_bar,
       id_salt,
     } = self;
 
@@ -145,7 +153,11 @@ impl SplitScroll {
           .id_salt(id_salt)
           .auto_shrink(false)
           .scroll_bar_rect(bottom_right_rect)
-          .stick_to_bottom(stick_to_bottom);
+          .stick_to_bottom(stick_to_bottom)
+          .shift_offset(vec2(0.0, vertical_shift));
+        if !vertical_scroll_bar {
+          area = area.vertical_scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+        }
         if let Some(offset) = vertical_scroll_offset {
           area = area.vertical_scroll_offset(offset);
         }

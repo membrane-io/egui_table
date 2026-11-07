@@ -120,6 +120,12 @@ pub struct Table {
 
   /// If set, the body uses this vertical scroll offset in this frame.
   vertical_scroll_offset: Option<f32>,
+
+  /// The body moves its vertical scroll offset by this distance in this frame.
+  vertical_shift: f32,
+
+  /// If false, the body shows no vertical scroll bar.
+  vertical_scroll_bar: bool,
 }
 
 impl Default for Table {
@@ -135,6 +141,8 @@ impl Default for Table {
       scroll_to_rows: None,
       stick_to_bottom: false,
       vertical_scroll_offset: None,
+      vertical_shift: 0.0,
+      vertical_scroll_bar: true,
     }
   }
 }
@@ -298,6 +306,21 @@ impl Table {
   #[inline]
   pub fn vertical_scroll_offset(mut self, offset: f32) -> Self {
     self.vertical_scroll_offset = Some(offset);
+    self
+  }
+
+  /// Move the vertical scroll offset of the body by `delta` in this frame, and keep the scroll motion that is in
+  /// progress. Use it when rows were added or removed above the visible rows. See [`egui::ScrollArea::shift_offset`].
+  #[inline]
+  pub fn vertical_shift(mut self, delta: f32) -> Self {
+    self.vertical_shift += delta;
+    self
+  }
+
+  /// Show or hide the vertical scroll bar of the body. Default: shown.
+  #[inline]
+  pub fn vertical_scroll_bar(mut self, show: bool) -> Self {
+    self.vertical_scroll_bar = show;
     self
   }
 
@@ -468,6 +491,8 @@ impl Table {
         ),
         stick_to_bottom: self.stick_to_bottom,
         vertical_scroll_offset: self.vertical_scroll_offset,
+        vertical_shift: self.vertical_shift,
+        vertical_scroll_bar: self.vertical_scroll_bar,
         id_salt: id,
       }
       .show(
